@@ -1,17 +1,82 @@
-#Autores: Keppler Sanchez, Daniel Viafara y Andrés Galvis
-from machine import Pin, ADC, PWM, I2C
+# Autores: Andres Galvis, Keppler Sanchez y Daniel Viafara.
+
+from machine import Pin, ADC, I2C
 from neopixel import NeoPixel
 from ssd1306 import SSD1306_I2C
 import utime
-import math
+import framebuf
 
-# Configuración del servo
-servo = PWM(Pin(13), freq=50)
+# Configuración de la pantalla OLED (128x32)
+i2c = I2C(0, scl=Pin(2), sda=Pin(5))
+oled = SSD1306_I2C(128, 32, i2c)
 
-# Configuración del potenciómetro
-potenciometro = ADC(Pin(32))
-potenciometro.atten(ADC.ATTN_11DB)
-potenciometro.width(ADC.WIDTH_12BIT)
+# Tamaño de la imagen (ajustado)
+img_width = 22
+img_height = 30
+
+# Datos de la imagen en formato bytearray
+image_data = bytearray([
+    0b11111111, 0b11111111, 0b11111111,
+    0b11111111, 0b11111111, 0b11111111,
+    0b11111111, 0b10000001, 0b11111111,
+    0b11111000, 0b00000000, 0b01111111,
+    0b11100000, 0b11111110, 0b00011111,
+    0b11100001, 0b11111110, 0b00011111,
+    0b11100011, 0b11111110, 0b00011111,
+    0b11100011, 0b11111110, 0b00011111,
+    0b11100001, 0b11111110, 0b00011111,
+    0b11100011, 0b11111110, 0b00011111,
+    0b11100001, 0b11111110, 0b00011111,
+    0b11100001, 0b11111110, 0b00011111,
+    0b11100011, 0b11111000, 0b00011111,
+    0b11100111, 0b11111110, 0b00011111,
+    0b11111111, 0b11111111, 0b10001111,
+    0b11111111, 0b11111111, 0b11001111,
+    0b11111111, 0b11111111, 0b11001111,
+    0b11111111, 0b11111111, 0b11111111,
+    0b11111111, 0b11111111, 0b11111111,
+    0b11111111, 0b11111000, 0b01111111,
+    0b11111111, 0b11111111, 0b11111111,
+    0b11111111, 0b11111111, 0b11111111,
+    0b11011110, 0b10011001, 0b10001111,
+    0b11011110, 0b10100101, 0b10110111,
+    0b11011110, 0b10100101, 0b10110111,
+    0b11011110, 0b10111101, 0b10001111,
+    0b11011110, 0b10111101, 0b10110111,
+    0b11101101, 0b10111101, 0b10110111,
+    0b11110011, 0b10111101, 0b10001111,
+    0b11111111, 0b11111111, 0b11111111
+])
+
+# Función para mostrar la imagen centrada en la pantalla OLED
+def mostrar_imagen():
+    fb = framebuf.FrameBuffer(image_data, img_width, img_height, framebuf.MONO_HLSB)
+    
+    x_pos = (oled.width - img_width) // 2  # Centrar horizontalmente
+    y_pos = (oled.height - img_height) // 2  # Centrar verticalmente
+
+    oled.fill(0)  # Limpia la pantalla
+    oled.blit(fb, x_pos, y_pos)  # Dibuja la imagen en la posición calculada
+    oled.show()  # Actualiza la pantalla
+    utime.sleep(3)  # Mostrar por 3 segundos
+
+# Función para desplazar nombres de derecha a izquierda
+def scroll_nombres():
+    texto = "Andres Galvis, Keppler Sanchez y Daniel Viafara  "
+    ancho_texto = len(texto) * 6  # Cada carácter tiene aproximadamente 6 píxeles de ancho
+
+    for offset in range(ancho_texto + 128):  # Mueve el texto completamente
+        oled.fill(0)  # Limpia la pantalla
+        oled.text(texto, 128 - offset, 12)  # Mueve el texto de derecha a izquierda
+        oled.show()
+        utime.sleep(0.01)  # Ajusta la velocidad del desplazamiento
+
+    utime.sleep(1)  # Pausa final antes de terminar la función
+
+# Ejecutar funciones
+mostrar_imagen()
+scroll_nombres()
+
 
 # Configuración del joystick
 joy_x = ADC(Pin(12))
@@ -20,91 +85,80 @@ joy_x.atten(ADC.ATTN_11DB)
 joy_y.atten(ADC.ATTN_11DB)
 joy_x.width(10)
 joy_y.width(10)
-joy_button = Pin(25, Pin.IN, Pin.PULL_UP)
-
-# Configuración de la pantalla SSD1306 (128x32)
-i2c = I2C(0, scl=Pin(2), sda=Pin(5))
-oled = SSD1306_I2C(128, 32, i2c)
+joy_button = Pin(25, Pin.IN)
 
 # Configuración de Neopixel
-pixels = NeoPixel(Pin(15), 16)
+num_leds = 16
+pixels = NeoPixel(Pin(15), num_leds)
 
-# Función para mapear valores
-def map_value(x, in_min, in_max, out_min, out_max):
-    return int((x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min)
+# Variables de estado
+color_rojo = 0
+color_azul = 0
+pos_led_blanco = 0
+direccion = 1
+movimiento_activo = True
+boton_anterior = 1
 
-# Función para mover el servo
-def mover_servo(angulo):
-    duty = map_value(angulo, 0, 180, 25, 125)
-    servo.duty(duty)
-
-# Función para actualizar los Neopixels según la dirección
-def actualizar_neopixel(direccion):
-    if direccion == -1:
-        color = (255, 0, 0)  #  Rojo (Antihorario)
-    elif direccion == 1:
-        color = (0, 255, 0)  #  Verde (Horario)
-    else:
-        color = (255, 255, 255)  #  Blanco (Botón presionado)
-
-    for i in range(16):
-        pixels[i] = color
+# Función para actualizar los Neopixels
+def actualizar_neopixel():
+    for i in range(num_leds):
+        if i == pos_led_blanco:
+            pixels[i] = (255, 255, 255)
+        else:
+            pixels[i] = (color_rojo, 0, color_azul)
     pixels.write()
 
-# Función para mostrar el "manómetro" en la pantalla OLED
-def mostrar_manometro(angulo):
-    oled.fill(0)  # Limpiar pantalla
-
-    # Dibujar un semicírculo (imitación de un manómetro)
-    for i in range(10, 118, 4):
-        oled.pixel(i, 16, 1)  # Línea horizontal base
-
-    # Calcular la posición de la "aguja"
-    x = int(64 + 20 * math.cos(math.radians(angulo + 180)))
-    y = int(16 + 10 * math.sin(math.radians(angulo + 180)))  # Reducido por la altura de la pantalla
-
-    # Dibujar la aguja
-    oled.line(64, 16, x, y, 1)
-
-    # Mostrar el ángulo en texto
-    oled.text(f"Angulo: {angulo}°", 30, 24)
-
+# Función para mostrar información en la OLED
+def actualizar_oled():
+    oled.fill(0)
+    oled.text("Color:", 0, 0)
+    if color_azul > 0:
+        oled.text("Azul", 50, 0)
+    elif color_rojo > 0:
+        oled.text("Rojo", 50, 0)
+    else:
+        oled.text("Negro", 50, 0)
+    
+    oled.text("Dir:", 0, 16)
+    if movimiento_activo:
+        oled.text("Horario" if direccion == 1 else "Antihorario", 50, 16)
+    else:
+        oled.text("Detenido", 50, 16)
     oled.show()
 
-# Función principal
-def main():
-    angulo = 90  # Mantiene el último ángulo en memoria
-    boton_presionado = False  # Estado previo del botón
+# Bucle principal
+while True:
+    joy_x_val = joy_x.read()
+    joy_y_val = joy_y.read()
+    button_pressed = not joy_button.value()
 
-    while True:
-        joy_value_x = joy_x.read()  # Leer el joystick (Eje X)
-        joy_value_y = joy_y.read()  # Leer el joystick (Eje Y)
-        pot_value = potenciometro.read()  # Leer potenciómetro
-        delay = map_value(pot_value, 0, 4095, 5, 50)  # Control de velocidad
+    if button_pressed and boton_anterior == 1:
+        movimiento_activo = not movimiento_activo
+    boton_anterior = joy_button.value()
 
-        # Movimiento del joystick en X e Y
-        if joy_value_x < 400 or joy_value_y < 400:  # Antihorario
-            angulo = max(0, angulo - 5)
-            actualizar_neopixel(-1)
-        elif joy_value_x > 600 or joy_value_y > 600:  # Horario
-            angulo = min(180, angulo + 5)
-            actualizar_neopixel(1)
-
-        # Verificar si el botón del joystick fue presionado
-        if not joy_button.value():  # Si el botón está presionado (valor 0)
-            if not boton_presionado:  # Solo cambiar si es la primera vez que se detecta
-                actualizar_neopixel(0)
-                boton_presionado = True  # Marcar como presionado
-        else:
-            boton_presionado = False  # Restablecer cuando se suelta
-
-        # Mover el servo al nuevo ángulo solo si cambió
-        mover_servo(angulo)
-
-        # Mostrar el ángulo en la pantalla OLED
-        mostrar_manometro(angulo)
-
-        utime.sleep_ms(delay)  # Ajuste de velocidad según el potenciómetro
-
-if __name__ == "__main__":
-    main()
+    if joy_x_val > 600 and direccion != 1:
+        direccion = 1
+        color_azul = 50
+        color_rojo = 0
+    elif joy_x_val < 400 and direccion != -1:
+        direccion = -1
+        color_rojo = 50
+        color_azul = 0
+    
+    if direccion == 1:
+        if joy_y_val > 600:
+            color_azul = min(255, color_azul + 5)
+        elif joy_y_val < 400:
+            color_azul = max(0, color_azul - 5)
+    else:
+        if joy_y_val > 600:
+            color_rojo = min(255, color_rojo + 5)
+        elif joy_y_val < 400:
+            color_rojo = max(0, color_rojo - 5)
+    
+    if movimiento_activo:
+        pos_led_blanco = (pos_led_blanco + direccion) % num_leds
+    
+    actualizar_neopixel()
+    actualizar_oled()
+    utime.sleep(0.1)
